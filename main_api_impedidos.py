@@ -29,10 +29,10 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 480
 ADMIN_TOKEN_EXPIRE_MINUTES = 480
 
-PFX_PATH = "/home/azureuser/projetos/certificados/e-CNPJ_F12.p12"
+PFX_PATH = "/home/azureuser/projetos/impedidos/Api_Impedidos/certicates/e-CNPJ_F12.p12"
 SENHA_PFX = "GEWYTGHP"
 
-TOKEN_FILE = "/home/azureuser/projetos/certificados/token_gov.json"  # cache persistente do token GOV
+TOKEN_FILE = "/home/azureuser/projetos/impedidos/Api_Impedidos/certicates/token_gov.json"  # cache persistente do token GOV
 
 # ============================================================
 # ⚙️ SQL SERVER ENGINE OTIMIZADA
