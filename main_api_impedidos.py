@@ -3,7 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from sqlalchemy import create_engine, Column, String, DateTime, Boolean, Integer, Float, Text
+from sqlalchemy import create_engine, Column, String, DateTime, Boolean, Integer, Float, Text, text
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from collections import defaultdict
 from threading import Lock
@@ -503,7 +503,7 @@ def root():
 @app.get("/health")
 def health_check(db: Session = Depends(get_db)):
     try:
-        db.execute(Text("SELECT 1"))
+        db.execute(text("SELECT 1"))
         return {
             "status": "ok",
             "database": "connected",
