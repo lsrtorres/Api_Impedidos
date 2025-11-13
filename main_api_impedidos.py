@@ -511,7 +511,7 @@ def health_check(db: Session = Depends(get_db)):
         }
     except Exception as e:
         return {
-            "status": "error",
+            "status": "error in health",
             "database": "disconnected",
             "error": str(e),
             "timestamp": datetime.now().isoformat()
