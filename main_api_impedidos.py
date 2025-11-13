@@ -29,10 +29,10 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 480
 ADMIN_TOKEN_EXPIRE_MINUTES = 480
 
-PFX_PATH = "/home/azureuser/projetos/impedidos/Api_Impedidos/certificates/e-CNPJ_F12.p12"
+PFX_PATH = "/home/azureuser/projetos/impedidos/certificates/e-CNPJ_F12.p12"
 SENHA_PFX = "GEWYTGHP"
 
-TOKEN_FILE = "/home/azureuser/projetos/impedidos/Api_Impedidos/certificates/token_gov.json"  # cache persistente do token GOV
+TOKEN_FILE = "/home/azureuser/projetos/impedidos/certificates/token_gov.json"  # cache persistente do token GOV
 
 # ============================================================
 # ⚙️ SQL SERVER ENGINE OTIMIZADA
@@ -135,6 +135,7 @@ class ConsultaResponse(BaseModel):
     transaction_id: str
     cpf: str
     status: str
+    motivo: str
     timestamp: str
     usuario: str
 
@@ -188,7 +189,11 @@ def obter_usuario_atual(credentials: HTTPAuthorizationCredentials = Security(sec
     usuario.ultimo_acesso = datetime.now()
     db.commit()
     return usuario
-
+def verificar_admin(usuario: UsuarioDB = Depends(obter_usuario_atual)) -> UsuarioDB:
+    """Verifica se o usuário é administrador"""
+    if not usuario.is_admin:
+        raise HTTPException(status_code=403, detail="Acesso negado. Apenas administradores.")
+    return usuario
 def registrar_log(db: Session, usuario: str, endpoint: str, metodo: str, status_code: int, ip: str, erro: str = None):
     try:
         db.add(LogAcessoDB(usuario=usuario, endpoint=endpoint, metodo=metodo,
@@ -247,7 +252,7 @@ def obter_token_api_gov(cert_path: str, key_path: str) -> tuple[str, int]:
     if response.status_code == 200:
         data = response.json()
         token = data.get("token") or data.get("access_token")
-        validade_segundos = data.get("expires_in", 86400)
+        validade_segundos = data.get("expires_in", 604800)
         return token, int(validade_segundos / 3600)
     raise HTTPException(status_code=500, detail=f"Erro ao obter token GOV: {response.status_code}")
 
@@ -281,7 +286,7 @@ def consultar_cpf_impedido(cpf: str, token: str) -> dict:
     resp = requests.get(url, headers=headers, timeout=30)
     tempo_resposta = (time.time() - inicio) * 1000
     if resp.status_code == 200:
-        return {"cpf": cpf_limpo, "status": resp.json().get("resultado", "indefinido"), "tempo_resposta_ms": tempo_resposta}
+        return {"cpf": cpf_limpo, "status": resp.json().get("resultado", "indefinido"), "motivo":resp.json().get("motivo", ""),"tempo_resposta_ms": tempo_resposta}
     elif resp.status_code == 404:
         return {"cpf": cpf_limpo, "status": "não encontrado", "tempo_resposta_ms": tempo_resposta}
     elif resp.status_code == 401:
@@ -293,6 +298,64 @@ def consultar_cpf_impedido(cpf: str, token: str) -> dict:
 # ============================================================
 # 🚀 ENDPOINT PRINCIPAL OTIMIZADO
 # ============================================================
+@app.post("/admin/registrar")
+def registrar_usuario(
+    usuario: UsuarioCreate,
+    db: Session = Depends(get_db),
+    admin: UsuarioDB = Depends(verificar_admin)
+):
+    """
+    Registra um novo usuário (apenas administradores)
+    """
+    # Verifica se usuário já existe
+    if db.query(UsuarioDB).filter(UsuarioDB.username == usuario.username).first():
+        raise HTTPException(status_code=400, detail="Nome de usuário já existe")
+    
+    if db.query(UsuarioDB).filter(UsuarioDB.email == usuario.email).first():
+        raise HTTPException(status_code=400, detail="Email já cadastrado")
+    
+    novo_usuario = UsuarioDB(
+        username=usuario.username,
+        email=usuario.email,
+        hashed_password=hash_password(usuario.password),
+        is_admin=usuario.is_admin,
+        ativo=True,
+        max_requests_per_minute=usuario.max_requests_per_minute,
+        criado_em=datetime.now()
+    )
+    
+    db.add(novo_usuario)
+    db.commit()
+    db.refresh(novo_usuario)
+    
+    registrar_log(db, admin.username, "/admin/registrar", "POST", 200, "sistema")
+    
+    return {
+        "mensagem": "Usuário registrado com sucesso",
+        "username": novo_usuario.username,
+        "email": novo_usuario.email,
+        "is_admin": novo_usuario.is_admin,
+        "max_requests_per_minute": novo_usuario.max_requests_per_minute
+    }
+
+
+@app.get("/")
+def root():
+    """Endpoint de boas-vindas"""
+    return {
+        "mensagem": "API de Consulta de Impedidos - Produção",
+        "versao": "3.0.0",
+        "autenticacao": "JWT Bearer Token",
+        "endpoints": {
+            "login": "POST /auth/login",
+            "registrar": "POST /admin/registrar (admin only)",
+            "consulta": "GET /consultar/{cpf}",
+            "transacao": "GET /transacao/{transaction_id}",
+            "historico": "GET /historico",
+            "estatisticas": "GET /admin/estatisticas (admin only)",
+            "documentacao": "/docs"
+        }
+    }
 
 @app.get("/consultar/{cpf}", response_model=ConsultaResponse)
 def consultar_impedido(
@@ -313,6 +376,7 @@ def consultar_impedido(
         transaction_id=transaction_id,
         cpf=resultado["cpf"],
         status=resultado["status"],
+        motivo = resultado["motivo"],
         timestamp=timestamp.isoformat(),
         usuario=usuario.username,
     )
@@ -345,6 +409,92 @@ def registrar_transacao_e_log(usuario, resultado, transaction_id, timestamp, ip_
         print(f"[✅ LOG-ASYNC] Transação registrada: {transaction_id}")
     except Exception as e:
         print(f"[⚠️ LOG-ASYNC] Erro ao registrar transação: {e}")
+        
+@app.post("/auth/login", response_model=Token)
+def login(credenciais: UsuarioLogin, db: Session = Depends(get_db)):
+    """
+    Realiza login e retorna um token JWT
+    """
+    usuario = db.query(UsuarioDB).filter(UsuarioDB.username == credenciais.username).first()
+    
+    if not usuario or usuario.hashed_password != hash_password(credenciais.password):
+        raise HTTPException(status_code=401, detail="Usuário ou senha incorretos")
+    
+    if not usuario.ativo:
+        raise HTTPException(status_code=403, detail="Usuário inativo")
+    
+    # Determina tempo de expiração baseado em ser admin ou não
+    expires_delta = timedelta(minutes=ADMIN_TOKEN_EXPIRE_MINUTES if usuario.is_admin else ACCESS_TOKEN_EXPIRE_MINUTES)
+    
+    token = criar_token_jwt(
+        data={"sub": usuario.username, "admin": usuario.is_admin},
+        expires_delta=expires_delta
+    )
+    
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in": int(expires_delta.total_seconds())
+    }
+    
+@app.post("/admin/registrar")
+def registrar_usuario(
+    usuario: UsuarioCreate,
+    db: Session = Depends(get_db),
+    admin: UsuarioDB = Depends(verificar_admin)
+):
+    """
+    Registra um novo usuário (apenas administradores)
+    """
+    # Verifica se usuário já existe
+    if db.query(UsuarioDB).filter(UsuarioDB.username == usuario.username).first():
+        raise HTTPException(status_code=400, detail="Nome de usuário já existe")
+    
+    if db.query(UsuarioDB).filter(UsuarioDB.email == usuario.email).first():
+        raise HTTPException(status_code=400, detail="Email já cadastrado")
+    
+    novo_usuario = UsuarioDB(
+        username=usuario.username,
+        email=usuario.email,
+        hashed_password=hash_password(usuario.password),
+        is_admin=usuario.is_admin,
+        ativo=True,
+        max_requests_per_minute=usuario.max_requests_per_minute,
+        criado_em=datetime.now()
+    )
+    
+    db.add(novo_usuario)
+    db.commit()
+    db.refresh(novo_usuario)
+    
+    registrar_log(db, admin.username, "/admin/registrar", "POST", 200, "sistema")
+    
+    return {
+        "mensagem": "Usuário registrado com sucesso",
+        "username": novo_usuario.username,
+        "email": novo_usuario.email,
+        "is_admin": novo_usuario.is_admin,
+        "max_requests_per_minute": novo_usuario.max_requests_per_minute
+    }
+
+@app.get("/")
+def root():
+    """Endpoint de boas-vindas"""
+    return {
+        "mensagem": "API de Consulta de Impedidos - Produção",
+        "versao": "3.0.0",
+        "autenticacao": "JWT Bearer Token",
+        "endpoints": {
+            "login": "POST /auth/login",
+            "registrar": "POST /admin/registrar (admin only)",
+            "consulta": "GET /consultar/{cpf}",
+            "transacao": "GET /transacao/{transaction_id}",
+            "historico": "GET /historico",
+            "estatisticas": "GET /admin/estatisticas (admin only)",
+            "documentacao": "/docs"
+        }
+    }
+
 
 # ============================================================
 # 🩺 HEALTHCHECK
@@ -353,10 +503,19 @@ def registrar_transacao_e_log(usuario, resultado, transaction_id, timestamp, ip_
 @app.get("/health")
 def health_check(db: Session = Depends(get_db)):
     try:
-        db.execute("SELECT 1")
-        return {"status": "ok", "database": "connected", "timestamp": datetime.now().isoformat()}
+        db.execute(Text("SELECT 1"))
+        return {
+            "status": "ok",
+            "database": "connected",
+            "timestamp": datetime.now().isoformat()
+        }
     except Exception as e:
-        return {"status": "error", "database": "disconnected", "error": str(e)}
+        return {
+            "status": "error",
+            "database": "disconnected",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
 
 # ============================================================
 # 🧭 STARTUP
