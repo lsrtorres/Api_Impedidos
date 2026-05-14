@@ -204,11 +204,20 @@ def verificar_rate_limit(username: str, max_requests: int, n: int = 1):
         if agora >= user_data["reset_time"]:
             user_data["count"] = 0
             user_data["reset_time"] = agora + timedelta(minutes=1)
-        if user_data["count"] + n > max_requests:
-            tempo_restante = (user_data["reset_time"] - agora).seconds
+        # Batch maior que o limite total do usuário — nunca vai passar
+        if n > max_requests:
             raise HTTPException(
                 status_code=429,
-                detail=f"Limite de requisições excedido ({n} solicitado, {max_requests - user_data['count']} disponível). Tente em {tempo_restante}s."
+                detail=f"Lote de {n} CPFs excede o limite do usuário ({max_requests}/min). "
+                       f"Reduza o batch para no máximo {max_requests} CPFs ou solicite aumento de limite."
+            )
+        if user_data["count"] + n > max_requests:
+            tempo_restante = (user_data["reset_time"] - agora).seconds
+            disponivel = max_requests - user_data["count"]
+            raise HTTPException(
+                status_code=429,
+                detail=f"Limite excedido. {disponivel} slots disponíveis neste minuto. "
+                       f"Aguarde {tempo_restante}s ou reduza o batch para {disponivel} CPFs."
             )
         user_data["count"] += n
 
@@ -643,35 +652,71 @@ def consultar_lote(
     ip_origem = request.client.host if request.client else "desconhecido"
     timestamp = datetime.now()
 
+    _serpro_url = "https://sigap-impedidos.fazenda.gov.br/impedimento/v2/condicao/{cpf}"
+
     def consultar_um(cpf_raw: str) -> tuple[ResultadoLote, dict | None]:
+        """
+        Versão enxuta para uso em lote:
+        - timeout de 15 s (sem retry com sleep — evita 504 no Nginx)
+        - retry único em 401 para renovar o token SERPRO
+        """
         cpf = cpf_raw.replace('.', '').replace('-', '').strip()
         if not cpf.isdigit() or len(cpf) != 11:
             return ResultadoLote(cpf=cpf_raw, erro="CPF inválido"), None
-        try:
-            token = obter_token_valido()
-            resultado = consultar_cpf_impedido(cpf, token)
-            tx_id = str(uuid.uuid4())
-            return (
-                ResultadoLote(
-                    cpf=resultado["cpf"],
-                    status=resultado["status"],
-                    motivos=resultado["motivos"],
-                    data_autoexclusao=resultado.get("data_autoexclusao"),
-                    transaction_id=tx_id,
-                ),
-                {
-                    "transaction_id": tx_id,
-                    "cpf": resultado["cpf"],
-                    "status": resultado["status"],
-                    "motivos": resultado["motivos"],
-                    "data_autoexclusao": resultado.get("data_autoexclusao"),
-                    "tempo_resposta_ms": resultado.get("tempo_resposta_ms", 0),
-                },
-            )
-        except HTTPException as he:
-            return ResultadoLote(cpf=cpf, erro=he.detail), None
-        except Exception as e:
-            return ResultadoLote(cpf=cpf, erro=str(e)), None
+
+        for tentativa in range(2):  # tentativa 0 normal; tentativa 1 após refresh do token
+            try:
+                inicio = time.time()
+                token = obter_token_valido()
+                resp = requests.get(
+                    _serpro_url.format(cpf=cpf),
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                    timeout=15,
+                )
+                tempo_ms = (time.time() - inicio) * 1000
+
+                if resp.status_code == 200:
+                    dados = resp.json()
+                    tx_id = str(uuid.uuid4())
+                    return (
+                        ResultadoLote(
+                            cpf=cpf,
+                            status=dados.get("resultado", "indefinido"),
+                            motivos=dados.get("motivos", []),
+                            data_autoexclusao=dados.get("dataSolicitacaoAutoexclusao"),
+                            transaction_id=tx_id,
+                        ),
+                        {
+                            "transaction_id": tx_id,
+                            "cpf": cpf,
+                            "status": dados.get("resultado", "indefinido"),
+                            "motivos": dados.get("motivos", []),
+                            "data_autoexclusao": dados.get("dataSolicitacaoAutoexclusao"),
+                            "tempo_resposta_ms": tempo_ms,
+                        },
+                    )
+                elif resp.status_code == 401 and tentativa == 0:
+                    # Token expirou: limpa cache e tenta uma vez mais
+                    with token_lock:
+                        token_cache["token"] = None
+                        token_cache["expira_em"] = None
+                    continue
+                elif resp.status_code == 404:
+                    tx_id = str(uuid.uuid4())
+                    return (
+                        ResultadoLote(cpf=cpf, status="não encontrado", motivos=[], transaction_id=tx_id),
+                        {"transaction_id": tx_id, "cpf": cpf, "status": "não encontrado",
+                         "motivos": [], "data_autoexclusao": None, "tempo_resposta_ms": tempo_ms},
+                    )
+                else:
+                    return ResultadoLote(cpf=cpf, erro=f"SERPRO HTTP {resp.status_code}"), None
+
+            except requests.exceptions.Timeout:
+                return ResultadoLote(cpf=cpf, erro="Timeout SERPRO (15s)"), None
+            except Exception as e:
+                return ResultadoLote(cpf=cpf, erro=str(e)), None
+
+        return ResultadoLote(cpf=cpf, erro="Token SERPRO inválido após renovação"), None
 
     resultados: list[ResultadoLote] = []
     transacoes_bg: list[dict] = []
@@ -680,7 +725,10 @@ def consultar_lote(
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {executor.submit(consultar_um, cpf): cpf for cpf in payload.cpfs}
         for future in as_completed(futures):
-            res, tx = future.result()
+            try:
+                res, tx = future.result()
+            except Exception as e:
+                res, tx = ResultadoLote(cpf="desconhecido", erro=str(e)), None
             resultados.append(res)
             if tx:
                 transacoes_bg.append(tx)
