@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel Admin – Impedidos SIGAP</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <style>
+        body { background: #f0f2f5; }
+        .navbar-sigap  { background: #1a3a5c !important; }
+        .stat-card     { border-left: 4px solid; }
+        .stat-blue     { border-color: #0d6efd; }
+        .stat-green    { border-color: #198754; }
+        .stat-orange   { border-color: #fd7e14; }
+        .stat-purple   { border-color: #6f42c1; }
+        .tbl-th        { font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: #6c757d; }
+    </style>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar navbar-dark navbar-sigap mb-4 py-2">
+    <div class="container-fluid px-4">
+        <span class="navbar-brand fw-bold mb-0">
+            <i class="bi bi-shield-lock me-2"></i>Painel Administrativo
+        </span>
+        <div class="d-flex align-items-center gap-3">
+            <span class="text-white-50 small" id="navUser"></span>
+            <a href="/consulta" class="btn btn-outline-light btn-sm">
+                <i class="bi bi-search me-1"></i>Consulta
+            </a>
+            <button class="btn btn-outline-light btn-sm" onclick="logout()">
+                <i class="bi bi-box-arrow-right me-1"></i>Sair
+            </button>
+        </div>
+    </div>
+</nav>
+
+<div class="container-fluid px-4">
+
+    <!-- Tabs -->
+    <ul class="nav nav-tabs mb-4" id="tabs">
+        <li class="nav-item">
+            <a class="nav-link active" href="#" id="tabUsuarios"
+               onclick="showTab('usuarios'); return false;">
+                <i class="bi bi-people me-1"></i>Usuários
+            </a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" href="#" id="tabEstatisticas"
+               onclick="showTab('estatisticas'); return false;">
+                <i class="bi bi-bar-chart me-1"></i>Estatísticas
+            </a>
+        </li>
+    </ul>
+
+    <!-- ── Tab Usuários ───────────────────────────────── -->
+    <div id="pnlUsuarios">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <p class="text-muted text-uppercase fw-bold mb-0"
+               style="font-size:.75rem; letter-spacing:.06em;">
+                <i class="bi bi-people me-1"></i>Gerenciar Usuários
+            </p>
+            <button class="btn btn-primary btn-sm"
+                    data-bs-toggle="modal" data-bs-target="#modalNovoUsuario">
+                <i class="bi bi-person-plus me-1"></i>Novo Usuário
+            </button>
+        </div>
+
+        <div class="card shadow-sm">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="tbl-th ps-3">Usuário</th>
+                                <th class="tbl-th">E-mail</th>
+                                <th class="tbl-th">Perfil</th>
+                                <th class="tbl-th">Req/min</th>
+                                <th class="tbl-th">Último acesso</th>
+                                <th class="tbl-th">Status</th>
+                                <th class="tbl-th text-end pe-3">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbUsuarios">
+                            <tr><td colspan="7" class="text-center text-muted py-4">Carregando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Tab Estatísticas ───────────────────────────── -->
+    <div id="pnlEstatisticas" class="d-none">
+        <p class="text-muted text-uppercase fw-bold mb-3"
+           style="font-size:.75rem; letter-spacing:.06em;">
+            <i class="bi bi-bar-chart me-1"></i>Visão Geral
+        </p>
+        <div class="row g-3 mb-3">
+            <div class="col-sm-6 col-xl-3">
+                <div class="card shadow-sm stat-card stat-blue h-100">
+                    <div class="card-body">
+                        <div class="text-muted small mb-1">Total de Usuários</div>
+                        <div class="fs-2 fw-bold" id="stTotalUsuarios">—</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <div class="card shadow-sm stat-card stat-green h-100">
+                    <div class="card-body">
+                        <div class="text-muted small mb-1">Usuários Ativos</div>
+                        <div class="fs-2 fw-bold" id="stUsuariosAtivos">—</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <div class="card shadow-sm stat-card stat-orange h-100">
+                    <div class="card-body">
+                        <div class="text-muted small mb-1">Total de Consultas</div>
+                        <div class="fs-2 fw-bold" id="stTotalTransacoes">—</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <div class="card shadow-sm stat-card stat-purple h-100">
+                    <div class="card-body">
+                        <div class="text-muted small mb-1">Consultas (últimas 24h)</div>
+                        <div class="fs-2 fw-bold" id="stTransacoes24h">—</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <small class="text-muted" id="stTimestamp"></small>
+    </div>
+
+</div><!-- /container -->
+
+<!-- ── Modal: Alterar Senha ──────────────────────────── -->
+<div class="modal fade" id="modalAlterarSenha" tabindex="-1"
+     aria-labelledby="modalAlterarSenhaLabel" aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalAlterarSenhaLabel">
+                    <i class="bi bi-key me-2"></i>Alterar Senha
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="formAlterarSenha" novalidate>
+                <div class="modal-body">
+                    <div id="alertSenha" class="alert d-none mb-3"></div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold text-muted small">Usuário</label>
+                        <div class="fw-bold" id="senhaUsername"></div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold" for="novaSenha">
+                            Nova Senha <span class="text-danger">*</span>
+                        </label>
+                        <input type="password" class="form-control" id="novaSenha"
+                               required minlength="6" autocomplete="new-password">
+                        <div class="form-text">Mínimo 6 caracteres.</div>
+                    </div>
+                    <div class="mb-1">
+                        <label class="form-label fw-semibold" for="confirmarSenha">
+                            Confirmar Senha <span class="text-danger">*</span>
+                        </label>
+                        <input type="password" class="form-control" id="confirmarSenha"
+                               required autocomplete="new-password">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary"
+                            data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-warning fw-semibold" id="btnSalvarSenha">
+                        <i class="bi bi-key me-1"></i>Salvar Senha
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ── Modal: Novo Usuário ───────────────────────────── -->
+<div class="modal fade" id="modalNovoUsuario" tabindex="-1"
+     aria-labelledby="modalNovoUsuarioLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalNovoUsuarioLabel">
+                    <i class="bi bi-person-plus me-2"></i>Novo Usuário
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="formNovoUsuario" novalidate>
+                <div class="modal-body">
+                    <div id="alertModal" class="alert d-none mb-3"></div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold" for="nwUsername">
+                            Usuário <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" class="form-control" id="nwUsername"
+                               autocomplete="off" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold" for="nwEmail">
+                            E-mail <span class="text-danger">*</span>
+                        </label>
+                        <input type="email" class="form-control" id="nwEmail" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold" for="nwPassword">
+                            Senha <span class="text-danger">*</span>
+                        </label>
+                        <input type="password" class="form-control" id="nwPassword"
+                               required minlength="6" autocomplete="new-password">
+                        <div class="form-text">Mínimo 6 caracteres.</div>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-6">
+                            <label class="form-label fw-semibold" for="nwMaxReq">
+                                Req / minuto
+                            </label>
+                            <input type="number" class="form-control" id="nwMaxReq"
+                                   value="10" min="1" max="1000">
+                        </div>
+                        <div class="col-6 d-flex align-items-end pb-1">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="nwIsAdmin">
+                                <label class="form-check-label fw-semibold" for="nwIsAdmin">
+                                    Administrador
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary"
+                            data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary" id="btnSalvar">
+                        <i class="bi bi-check-lg me-1"></i>Criar Usuário
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+let usuarios = [];
+let myUsername = '';
+
+/* ── Autenticação ─────────────────────────────────────── */
+(function () {
+    const token = sessionStorage.getItem('token');
+    if (!token) { window.location.href = '/'; return; }
+    try {
+        const p = JSON.parse(atob(token.split('.')[1]));
+        if (p.exp * 1000 < Date.now() || !p.admin) {
+            sessionStorage.clear(); window.location.href = '/'; return;
+        }
+        myUsername = p.sub;
+        document.getElementById('navUser').textContent = p.sub;
+    } catch (_) { sessionStorage.clear(); window.location.href = '/'; }
+    carregarUsuarios();
+})();
+
+/* ── Helpers ──────────────────────────────────────────── */
+function apiHeaders() {
+    return {
+        Authorization: `Bearer ${sessionStorage.getItem('token')}`,
+        'Content-Type': 'application/json',
+    };
+}
+async function trataUnauth(resp) {
+    if (resp.status === 401 || resp.status === 403) {
+        sessionStorage.clear(); window.location.href = '/'; return true;
+    }
+    return false;
+}
+function formatarData(iso) {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+}
+
+/* ── Tabs ─────────────────────────────────────────────── */
+function showTab(tab) {
+    document.getElementById('pnlUsuarios').classList.toggle('d-none',     tab !== 'usuarios');
+    document.getElementById('pnlEstatisticas').classList.toggle('d-none', tab !== 'estatisticas');
+    document.getElementById('tabUsuarios').classList.toggle('active',     tab === 'usuarios');
+    document.getElementById('tabEstatisticas').classList.toggle('active', tab === 'estatisticas');
+    if (tab === 'estatisticas') carregarEstatisticas();
+}
+
+/* ── Usuários ─────────────────────────────────────────── */
+async function carregarUsuarios() {
+    try {
+        const resp = await fetch('/admin/usuarios', { headers: apiHeaders() });
+        if (await trataUnauth(resp)) return;
+        usuarios = await resp.json();
+        renderUsuarios();
+    } catch (_) {
+        document.getElementById('tbUsuarios').innerHTML =
+            '<tr><td colspan="7" class="text-center text-danger py-4">Erro ao carregar usuários.</td></tr>';
+    }
+}
+
+function renderUsuarios() {
+    const tbody = document.getElementById('tbUsuarios');
+    if (!usuarios.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">Nenhum usuário cadastrado.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = usuarios.map(u => {
+        const isMe       = u.username === myUsername;
+        const badgePerfil = u.is_admin
+            ? '<span class="badge bg-primary">Admin</span>'
+            : '<span class="badge bg-secondary">Atendimento</span>';
+        const badgeAtivo = u.ativo
+            ? '<span class="badge bg-success">Ativo</span>'
+            : '<span class="badge bg-danger">Inativo</span>';
+
+        const btnSenha = isMe ? '' : `
+            <button class="btn btn-sm btn-outline-secondary"
+                    onclick="abrirModalSenha(${u.id}, '${u.username}')"
+                    title="Alterar senha">
+                <i class="bi bi-key"></i>
+            </button>`;
+
+        let acoes = '';
+        if (isMe) {
+            acoes = '<span class="text-muted small fst-italic">você</span>';
+        } else if (u.ativo) {
+            acoes = `
+                <div class="d-flex gap-1 justify-content-end">
+                    ${btnSenha}
+                    <button class="btn btn-sm btn-outline-danger"
+                            onclick="toggleAtivo(${u.id}, false, '${u.username}')">
+                        <i class="bi bi-person-x me-1"></i>Desativar
+                    </button>
+                </div>`;
+        } else {
+            acoes = `
+                <div class="d-flex gap-1 justify-content-end">
+                    ${btnSenha}
+                    <button class="btn btn-sm btn-outline-success"
+                            onclick="toggleAtivo(${u.id}, true, '${u.username}')">
+                        <i class="bi bi-person-check me-1"></i>Ativar
+                    </button>
+                </div>`;
+        }
+
+        return `
+            <tr class="${!u.ativo ? 'opacity-60' : ''}">
+                <td class="ps-3 fw-semibold">${u.username}</td>
+                <td class="text-muted">${u.email}</td>
+                <td>${badgePerfil}</td>
+                <td>${u.max_requests_per_minute}</td>
+                <td><small class="text-muted">${formatarData(u.ultimo_acesso)}</small></td>
+                <td>${badgeAtivo}</td>
+                <td class="text-end pe-3">${acoes}</td>
+            </tr>`;
+    }).join('');
+}
+
+async function toggleAtivo(id, ativo, username) {
+    const acao = ativo ? 'ativar' : 'desativar';
+    if (!confirm(`Deseja ${acao} o usuário "${username}"?`)) return;
+    try {
+        const resp = await fetch(`/admin/usuarios/${id}`, {
+            method: 'PATCH',
+            headers: apiHeaders(),
+            body: JSON.stringify({ ativo }),
+        });
+        if (await trataUnauth(resp)) return;
+        if (resp.ok) {
+            await carregarUsuarios();
+        } else {
+            const err = await resp.json();
+            alert(err.detail || 'Erro ao atualizar usuário.');
+        }
+    } catch (_) { alert('Erro de conexão.'); }
+}
+
+/* ── Alterar senha ────────────────────────────────────── */
+let senhaUserId = null;
+
+function abrirModalSenha(id, username) {
+    senhaUserId = id;
+    document.getElementById('senhaUsername').textContent = username;
+    document.getElementById('novaSenha').value    = '';
+    document.getElementById('confirmarSenha').value = '';
+    document.getElementById('alertSenha').className = 'alert d-none';
+    new bootstrap.Modal(document.getElementById('modalAlterarSenha')).show();
+}
+
+document.getElementById('formAlterarSenha').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const nova     = document.getElementById('novaSenha').value;
+    const confirma = document.getElementById('confirmarSenha').value;
+    const alertEl  = document.getElementById('alertSenha');
+
+    if (nova !== confirma) {
+        alertEl.className = 'alert alert-danger';
+        alertEl.textContent = 'As senhas não coincidem.';
+        return;
+    }
+
+    const btn = document.getElementById('btnSalvarSenha');
+    btn.disabled = true;
+
+    try {
+        const resp = await fetch(`/admin/usuarios/${senhaUserId}`, {
+            method: 'PATCH',
+            headers: apiHeaders(),
+            body: JSON.stringify({ nova_senha: nova }),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+            bootstrap.Modal.getInstance(document.getElementById('modalAlterarSenha')).hide();
+        } else {
+            alertEl.className = 'alert alert-danger';
+            alertEl.textContent = data.detail || 'Erro ao alterar senha.';
+        }
+    } catch (_) {
+        alertEl.className = 'alert alert-danger';
+        alertEl.textContent = 'Erro de conexão.';
+    } finally {
+        btn.disabled = false;
+    }
+});
+
+/* ── Criar usuário ────────────────────────────────────── */
+document.getElementById('formNovoUsuario').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('btnSalvar');
+    btn.disabled = true;
+
+    const payload = {
+        username:               document.getElementById('nwUsername').value.trim(),
+        email:                  document.getElementById('nwEmail').value.trim(),
+        password:               document.getElementById('nwPassword').value,
+        is_admin:               document.getElementById('nwIsAdmin').checked,
+        max_requests_per_minute: parseInt(document.getElementById('nwMaxReq').value, 10),
+    };
+
+    try {
+        const resp = await fetch('/admin/registrar', {
+            method: 'POST',
+            headers: apiHeaders(),
+            body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+            bootstrap.Modal.getInstance(document.getElementById('modalNovoUsuario')).hide();
+            document.getElementById('formNovoUsuario').reset();
+            await carregarUsuarios();
+        } else {
+            mostrarAlertaModal('danger', data.detail || 'Erro ao criar usuário.');
+        }
+    } catch (_) {
+        mostrarAlertaModal('danger', 'Erro de conexão.');
+    } finally {
+        btn.disabled = false;
+    }
+});
+
+// Limpa alerta ao fechar o modal
+document.getElementById('modalNovoUsuario').addEventListener('hidden.bs.modal', () => {
+    document.getElementById('alertModal').className = 'alert d-none';
+    document.getElementById('formNovoUsuario').reset();
+});
+
+function mostrarAlertaModal(type, msg) {
+    const el = document.getElementById('alertModal');
+    el.className = `alert alert-${type}`;
+    el.textContent = msg;
+}
+
+/* ── Estatísticas ─────────────────────────────────────── */
+async function carregarEstatisticas() {
+    try {
+        const resp = await fetch('/admin/estatisticas', { headers: apiHeaders() });
+        if (await trataUnauth(resp)) return;
+        const d = await resp.json();
+        document.getElementById('stTotalUsuarios').textContent   = d.total_usuarios;
+        document.getElementById('stUsuariosAtivos').textContent  = d.usuarios_ativos;
+        document.getElementById('stTotalTransacoes').textContent = d.total_transacoes;
+        document.getElementById('stTransacoes24h').textContent   = d.transacoes_ultimas_24h;
+        document.getElementById('stTimestamp').textContent       = `Atualizado em: ${formatarData(d.timestamp)}`;
+    } catch (_) { /* silencioso */ }
+}
+
+function logout() { sessionStorage.clear(); window.location.href = '/'; }
+</script>
+</body>
+</html>
