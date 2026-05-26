@@ -25,7 +25,7 @@ from urllib.parse import quote_plus
 # ============================================================
 load_dotenv()
 
-SENDGRID_API_KEY_LUVA = 'REMOVED_SECRET_LUVA'
+SENDGRID_API_KEY_LUVA = os.getenv("SENDGRID_API_KEY_LUVA", "")
 
 FROM_EMAIL_LUVA = Email("atendimento@luva.bet", name="Luva.bet – Atendimento")
 REPLY_TO_LUVA   = ReplyTo("jogo.responsavel@Luva.bet.br", name="Luva.bet – Customer Service")

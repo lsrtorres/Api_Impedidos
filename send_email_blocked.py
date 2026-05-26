@@ -25,7 +25,7 @@ from urllib.parse import quote_plus
 # ============================================================
 load_dotenv()
 
-SENDGRID_API_KEY_F12 = 'REMOVED_SECRET_F12'
+SENDGRID_API_KEY_F12 = os.getenv("SENDGRID_API_KEY_F12", "")
 
 FROM_EMAIL_F12 = Email("atendimento@f12.bet", name="F12.bet – Atendimento")
 REPLY_TO_F12   = ReplyTo("atendimento@f12.bet", name="F12.bet – Customer Service")
