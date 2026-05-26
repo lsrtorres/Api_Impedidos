@@ -1,48 +1,57 @@
-# Deploy em Produção (Rocky Linux 9)
+# Deploy em Produção — Rocky Linux 9
 
-## Estrutura no servidor
+## Estrutura de diretórios
 
 ```
 /home/projects/impedidos/Api_Impedidos/
 ├── main.py
 ├── .env                        ← não versionado
 ├── certificates/
-│   ├── e-CNPJ_F12.p12
-│   └── token_gov.json          ← gerado automaticamente
-├── impedidos/                  ← virtualenv
-├── web/
+│   ├── e-CNPJ_F12.p12          ← copiado manualmente
+│   └── token_gov.json          ← gerado automaticamente na primeira consulta
+├── impedidos/                  ← virtualenv Python
+├── web/                        ← frontend servido pelo FastAPI
 ├── docs/
 └── migrations/
 ```
 
-## 1. Pré-requisitos do sistema
+---
+
+## 1. Atualizar o sistema e instalar dependências base
 
 ```bash
 sudo dnf update -y
-sudo dnf install -y git curl nano wget unzip python3.11 python3.11-pip \
-                    python3.11-devel openssl-devel libffi-devel
+sudo dnf install -y git curl nano wget unzip \
+                    python3.11 python3.11-pip python3.11-devel \
+                    openssl-devel libffi-devel
 ```
+
+---
 
 ## 2. ODBC Driver 18 para SQL Server
 
 ```bash
+# Adicionar repositório Microsoft
 curl -sSL https://packages.microsoft.com/config/rhel/9/prod.repo \
      | sudo tee /etc/yum.repos.d/mssql-release.repo
 
+# Instalar driver e ferramentas ODBC
 sudo ACCEPT_EULA=Y dnf install -y msodbcsql18
 sudo dnf install -y unixODBC-devel
 
-# Confirmar
+# Verificar instalação
 odbcinst -q -d -n "ODBC Driver 18 for SQL Server"
 ```
 
-## 3. Clonar e configurar
+---
+
+## 3. Clonar o repositório e criar o virtualenv
 
 ```bash
 mkdir -p /home/projects/impedidos
 cd /home/projects/impedidos
 
-git clone <URL_DO_REPO> Api_Impedidos
+git clone https://github.com/lsrtorres/Api_Impedidos.git Api_Impedidos
 cd Api_Impedidos
 
 python3.11 -m venv impedidos
@@ -53,39 +62,62 @@ pip install fastapi "uvicorn[standard]" sqlalchemy pyodbc pyjwt \
             cryptography requests "pydantic[email]" python-dotenv
 ```
 
+---
+
 ## 4. Copiar o certificado PFX
 
 Execute no seu Mac (não no servidor):
 
 ```bash
-scp /caminho/local/e-CNPJ_F12.p12 \
-    user@<IP>:/home/projects/impedidos/Api_Impedidos/certificates/
+scp /caminho/para/e-CNPJ_F12.p12 \
+    user@<IP_DO_SERVIDOR>:/home/projects/impedidos/Api_Impedidos/certificates/
 ```
 
-## 5. Configurar o .env
+---
+
+## 5. Configurar o `.env`
 
 ```bash
+cd /home/projects/impedidos/Api_Impedidos
 cp .env.example .env
-nano .env   # preencher todos os valores
+nano .env
 ```
 
-Gere o SECRET_KEY:
+Gere um `SECRET_KEY` seguro:
 
 ```bash
 python3.11 -c "import secrets; print(secrets.token_hex(32))"
 ```
 
+Preencha todos os campos:
+
+```env
+SECRET_KEY=<valor_gerado_acima>
+PFX_PATH=/home/projects/impedidos/Api_Impedidos/certificates/e-CNPJ_F12.p12
+SENHA_PFX=<senha_do_pfx>
+TOKEN_FILE=/home/projects/impedidos/Api_Impedidos/certificates/token_gov.json
+DB_SERVER=<ip_do_banco>
+DB_NAME=Api_Impedidos
+DB_USER=<usuario_db>
+DB_PASS=<senha_db>
+SENDGRID_API_KEY_F12=<chave_sendgrid_f12>
+SENDGRID_API_KEY_LUVA=<chave_sendgrid_luva>
+```
+
+---
+
 ## 6. Rodar as migrations
 
-Execute uma única vez em cada migration nova:
+Execute uma única vez — o script verifica se as colunas já existem antes de aplicar:
 
 ```bash
 source impedidos/bin/activate
 
 python3.11 - <<'EOF'
-from sqlalchemy import create_engine, text
 import os
 from dotenv import load_dotenv
+from sqlalchemy import create_engine, text
+
 load_dotenv()
 
 conn_str = (
@@ -94,6 +126,7 @@ conn_str = (
     f"?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
 )
 engine = create_engine(conn_str)
+
 with engine.connect() as conn:
     r = conn.execute(text(
         "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
@@ -103,11 +136,13 @@ with engine.connect() as conn:
         conn.execute(text("ALTER TABLE transacoes ADD motivos NVARCHAR(MAX) NULL"))
         conn.execute(text("ALTER TABLE transacoes ADD data_autoexclusao NVARCHAR(50) NULL"))
         conn.commit()
-        print("Migrations aplicadas.")
+        print("Migrations aplicadas com sucesso.")
     else:
         print("Colunas ja existem, nada a fazer.")
 EOF
 ```
+
+---
 
 ## 7. Criar o usuário admin inicial
 
@@ -116,18 +151,25 @@ source impedidos/bin/activate
 python3.11 create_admin.py
 ```
 
-## 8. Testar antes do systemd
+---
+
+## 8. Smoke test antes do systemd
 
 ```bash
 source impedidos/bin/activate
 uvicorn main:app --host 0.0.0.0 --port 8000
+```
 
-# Em outro terminal
+Em outro terminal:
+
+```bash
 curl http://localhost:8000/health
 # Esperado: {"status":"ok"}
 ```
 
 `Ctrl+C` para parar após confirmar.
+
+---
 
 ## 9. Serviço systemd
 
@@ -141,7 +183,7 @@ Description=API Impedidos SIGAP
 After=network.target
 
 [Service]
-User=azureuser
+User=root
 WorkingDirectory=/home/projects/impedidos/Api_Impedidos
 EnvironmentFile=/home/projects/impedidos/Api_Impedidos/.env
 ExecStart=/home/projects/impedidos/Api_Impedidos/impedidos/bin/uvicorn \
@@ -153,24 +195,39 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
+> Ajuste `User=` para o usuário que tem leitura no diretório do projeto e no certificado PFX.
+
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable api-impedidos
-sudo systemctl start  api-impedidos
-sudo systemctl status api-impedidos
+sudo systemctl enable  api-impedidos
+sudo systemctl start   api-impedidos
+sudo systemctl status  api-impedidos
 ```
 
-## 10. SELinux (Rocky Linux 9)
+---
+
+## 10. SELinux
+
+Rocky Linux 9 roda SELinux em modo **enforcing** por padrão. Sem esta configuração o Nginx não consegue fazer proxy:
 
 ```bash
-# Permitir Nginx conectar a portas locais
 sudo setsebool -P httpd_can_network_connect 1
-
-# Se ainda houver negações, ver log e gerar política
-sudo ausearch -m AVC -ts recent | tail -30
 ```
 
-## 11. Nginx
+Se houver erros de permissão de arquivo nos logs:
+
+```bash
+# Ver negações recentes
+sudo ausearch -m AVC -ts recent | tail -30
+
+# Gerar e aplicar política automática
+sudo audit2allow -a -M api-impedidos-local
+sudo semodule -i api-impedidos-local.pp
+```
+
+---
+
+## 11. Nginx como proxy reverso
 
 ```bash
 sudo dnf install -y nginx
@@ -181,24 +238,26 @@ sudo nano /etc/nginx/conf.d/api-impedidos.conf
 ```nginx
 server {
     listen 80;
-    server_name stg.opaservices.com.br;
+    server_name stg.opaservices.com.br;   # ou IP do servidor
 
-    proxy_read_timeout 120s;
-    proxy_connect_timeout 10s;
+    proxy_read_timeout    120s;
+    proxy_connect_timeout  10s;
 
     location / {
         proxy_pass         http://127.0.0.1:8000;
-        proxy_set_header   Host $host;
-        proxy_set_header   X-Real-IP $remote_addr;
-        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
     }
 }
 ```
 
 ```bash
-sudo nginx -t
+sudo nginx -t                  # validar sintaxe
 sudo systemctl restart nginx
 ```
+
+---
 
 ## 12. Firewall (firewalld)
 
@@ -209,24 +268,48 @@ sudo firewall-cmd --reload
 sudo firewall-cmd --list-all
 ```
 
-> A porta 8000 não precisa ser aberta externamente — o Nginx faz o proxy internamente.
+> A porta `8000` **não** precisa ser aberta — o tráfego externo passa pelo Nginx na 80/443.
 
-## 13. Comandos de operação
+---
+
+## 13. Verificação final
 
 ```bash
-# Logs em tempo real
-sudo journalctl -u api-impedidos -f
-
-# Verificar saúde
+# API via loopback
 curl http://localhost:8000/health
+
+# API via Nginx (externo)
+curl http://<IP_DO_SERVIDOR>/health
+
+# Frontend
+curl -s -o /dev/null -w "%{http_code}" http://<IP_DO_SERVIDOR>/
+
+# Logs do serviço em tempo real
+sudo journalctl -u api-impedidos -f
 ```
 
-## 14. Atualizar código (workflow de deploy)
+---
+
+## 14. Workflow de atualização
 
 ```bash
 cd /home/projects/impedidos/Api_Impedidos
 git pull
 source impedidos/bin/activate
-# pip install ... se houver novas dependências
+pip install -r requirements.txt   # se houver novas dependências
 sudo systemctl restart api-impedidos
+sudo systemctl status  api-impedidos
 ```
+
+---
+
+## Referência rápida
+
+| Ação | Comando |
+|---|---|
+| Ver logs | `sudo journalctl -u api-impedidos -f` |
+| Reiniciar serviço | `sudo systemctl restart api-impedidos` |
+| Status do serviço | `sudo systemctl status api-impedidos` |
+| Health check | `curl http://localhost:8000/health` |
+| Recarregar Nginx | `sudo systemctl reload nginx` |
+| Status SELinux | `sudo getenforce` |
