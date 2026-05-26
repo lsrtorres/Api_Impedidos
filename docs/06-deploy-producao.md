@@ -22,7 +22,7 @@
 ```bash
 sudo dnf update -y
 sudo dnf install -y git curl nano wget unzip \
-                    python3.11 python3.11-pip python3.11-devel \
+                    python3.12 python3.12-pip python3.12-devel \
                     openssl-devel libffi-devel
 ```
 
@@ -69,8 +69,8 @@ pip install fastapi "uvicorn[standard]" sqlalchemy pyodbc pyjwt \
 Execute no seu Mac (não no servidor):
 
 ```bash
-scp /caminho/para/e-CNPJ_F12.p12 \
-    user@<IP_DO_SERVIDOR>:/home/projects/impedidos/Api_Impedidos/certificates/
+scp /Users/leandrotorres/Documents/Projetos-Bet/Api_Impedidos/certificates/e-CNPJ_F12.p12 \
+    leandro.torres@5.78.220.21:/home/projects/impedidos/Api_Impedidos/certificates/
 ```
 
 ---
@@ -160,11 +160,23 @@ source impedidos/bin/activate
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-Em outro terminal:
+Em outro terminal, verifique API e frontend:
 
 ```bash
+# Health check da API
 curl http://localhost:8000/health
 # Esperado: {"status":"ok"}
+
+# Páginas do frontend (devem retornar HTTP 200)
+curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/
+curl -s -o /dev/null -w "%{http_code}" http://localhost:8100/consulta
+curl -s -o /dev/null -w "%{http_code}" http://localhost:8100/painel-admin
+```
+
+Ou acesse pelo browser (se a porta 8000 estiver aberta no firewall):
+
+```
+http://<IP_DO_SERVIDOR>:8000/
 ```
 
 `Ctrl+C` para parar após confirmar.
@@ -281,12 +293,23 @@ curl http://localhost:8000/health
 # API via Nginx (externo)
 curl http://<IP_DO_SERVIDOR>/health
 
-# Frontend
-curl -s -o /dev/null -w "%{http_code}" http://<IP_DO_SERVIDOR>/
+# Frontend — todas devem retornar 200
+curl -s -o /dev/null -w "login:       %{http_code}\n" http://<IP_DO_SERVIDOR>/
+curl -s -o /dev/null -w "consulta:    %{http_code}\n" http://<IP_DO_SERVIDOR>/consulta
+curl -s -o /dev/null -w "admin:       %{http_code}\n" http://<IP_DO_SERVIDOR>/painel-admin
 
 # Logs do serviço em tempo real
 sudo journalctl -u api-impedidos -f
 ```
+
+Para acessar pelo browser:
+
+| Página | URL |
+|---|---|
+| Login | `http://<IP_DO_SERVIDOR>/` |
+| Consulta | `http://<IP_DO_SERVIDOR>/consulta` |
+| Admin | `http://<IP_DO_SERVIDOR>/painel-admin` |
+| Swagger | `http://<IP_DO_SERVIDOR>/docs` |
 
 ---
 
