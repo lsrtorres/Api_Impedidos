@@ -202,6 +202,8 @@ ExecStart=/home/projects/impedidos/Api_Impedidos/impedidos/bin/uvicorn \
           main:app --host 127.0.0.1 --port 8000 --workers 4
 Restart=on-failure
 RestartSec=5
+StandardOutput=append:/var/log/api-impedidos.log
+StandardError=append:/var/log/api-impedidos.err.log
 
 [Install]
 WantedBy=multi-user.target
@@ -298,7 +300,11 @@ curl -s -o /dev/null -w "login:       %{http_code}\n" http://<IP_DO_SERVIDOR>/
 curl -s -o /dev/null -w "consulta:    %{http_code}\n" http://<IP_DO_SERVIDOR>/consulta
 curl -s -o /dev/null -w "admin:       %{http_code}\n" http://<IP_DO_SERVIDOR>/painel-admin
 
-# Logs do serviço em tempo real
+# Logs em tempo real
+sudo tail -f /var/log/api-impedidos.log
+sudo tail -f /var/log/api-impedidos.err.log
+
+# Alternativa via journald
 sudo journalctl -u api-impedidos -f
 ```
 
@@ -330,7 +336,9 @@ sudo systemctl status  api-impedidos
 
 | Ação | Comando |
 |---|---|
-| Ver logs | `sudo journalctl -u api-impedidos -f` |
+| Ver log geral | `sudo tail -f /var/log/api-impedidos.log` |
+| Ver erros | `sudo tail -f /var/log/api-impedidos.err.log` |
+| Ver logs (journald) | `sudo journalctl -u api-impedidos -f` |
 | Reiniciar serviço | `sudo systemctl restart api-impedidos` |
 | Status do serviço | `sudo systemctl status api-impedidos` |
 | Health check | `curl http://localhost:8000/health` |
